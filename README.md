@@ -20,7 +20,7 @@ Structured text needs a portable object layer that is not bound to a single lang
 
 Structured text has been reinvented many times as local conventions: documentation comments, Markdown front matter, task lists, tags, wiki-style links, embedded metadata, notebook cells, queryable notes, and application-specific annotation formats. These mechanisms let ordinary text carry objects, fields, relationships, states, constraints, and references.
 
-The problem is not that these mechanisms are useless. The problem is that each is usually meaningful only within its own host: a particular language, editor, plugin ecosystem, documentation generator, note-taking system, or storage model. A field written in one system cannot reliably be queried by another. A note embedded in source code cannot naturally share an object model with a planning document. A task, a design constraint, a prompt instruction, and an implementation note may refer to the same work while remaining invisible to one another.
+The problem is not that these mechanisms are useless. The problem is that each is usually meaningful only within its host context: a particular language, editor, plugin ecosystem, documentation generator, note-taking system, or storage model. A field written in one system cannot reliably be queried by another. A note embedded in source code cannot naturally share an object model with a planning document. A task, a design constraint, a prompt instruction, and an implementation note may refer to the same work while remaining invisible to one another.
 
 Structured text should not be trapped in local conventions. A text object should be able to appear in different host formats, be extracted by host-specific adapters, and then participate in a shared model for querying, indexing, validation, compilation, and reuse.
 
@@ -30,7 +30,7 @@ Human-agent collaboration needs an explicit mediation layer, not only shared acc
 
 A repository gives humans and agents a common place to work, but it does not by itself define how they should understand each other. Humans communicate through intent, priorities, warnings, review expectations, design rationale, and change protocols. Agents operate through retrieval, planning, generation, tool calls, and edits. Without a structured mediation layer, these modes meet only through ordinary prose and best-effort interpretation.
 
-That is too weak for serious engineering work. A human may need to say that a region is safe to refactor but not to redesign, that a generated file must be changed through its source template, that a prompt instruction is runtime-visible but its rationale is private, that a decision is tentative, or that a change requires review from a specific owner. These statements are not merely documentation. They are collaboration signals that should guide how agents search, plan, modify, compile, and ask for confirmation.
+That is too weak for serious engineering work. A human may need to say that a region is safe to refactor but not to redesign, that a generated file must be changed through its source template, that a prompt instruction is runtime-visible but its rationale is private, that a decision is tentative, or that a change requires review from a specific reviewer. These statements are not merely documentation. They are collaboration signals that should guide how agents search, plan, modify, compile, and ask for confirmation.
 
 Existing code tools do not fully cover this role. Type checkers, linters, tests, and formatters can check implementation artifacts, but they do not provide a general channel for structured human intent. Repository search and RAG can retrieve relevant text, but retrieval is not the same as a contract: it does not define scope, priority, visibility, responsibility, or required behavior.
 
@@ -40,7 +40,7 @@ This project treats structured text as the mediation layer between humans, tools
 
 Source-controlled text should remain canonical without becoming the only useful view of the data.
 
-A source file is a good durable representation for certain kinds of knowledge, but it is not always the best interface for reading, reviewing, planning, searching, or coordinating that knowledge. The same source-controlled data may need to be viewed by status, owner, topic, dependency, target artifact, affected module, review requirement, generated output, or release scope.
+A source file is a good durable representation for certain kinds of knowledge, but it is not always the best interface for reading, reviewing, planning, searching, or coordinating that knowledge. The same source-controlled data may need to be viewed by status, reviewer, topic, dependency, target artifact, affected module, review requirement, generated output, or release scope.
 
 Databases and project tools commonly support such projections. Source-centered systems often do not. They tend to treat the textual layout as the primary interface as well as the canonical representation.
 
@@ -82,7 +82,7 @@ An adapter may support four capabilities:
 
 - **Sidecar discovery**: attach structured data to artifacts that cannot or should not be modified directly. Images, videos, audio files, design files, binary assets, generated outputs, and third-party files may need sidecar files rather than embedded annotations.
 
-- **Editing**: when safe, apply structured-object changes back to the embedded block, host file, or sidecar file that owns the data. If an adapter cannot edit a source safely, it should expose the object as read-only or report the limitation explicitly.
+- **Editing**: when safe, apply structured-object changes back to the embedded block, host file, or sidecar file that contains the data. If an adapter cannot edit a source safely, it should expose the object as read-only or report the limitation explicitly.
 
 This makes adapters more than parsers. They are the project's extension mechanism for bringing external artifacts into the system while preserving their connection to source. Different adapters may support different levels of capability, but extraction without source mapping is not sufficient for this project.
 
@@ -258,14 +258,14 @@ Nested properties can be used to express object values:
 ```md
 Review::
   Required:: true
-  Owner:: Auth
+  Reviewer:: Auth
   Level:: Strict
 ```
 
 A positional entry uses an empty property name:
 
 ```md
-Owners::
+Reviewers::
   :: Alice
   :: Bob
   :: Carol
@@ -304,6 +304,88 @@ Name::      named property marker
 ```
 
 The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules. Values are normalized into JSON-compatible data, while the authored Markdown source remains available for rendering, diagnostics, round-tripping, and editing.
+
+### Schema definition language
+
+The schema definition language defines the vocabulary and value shapes used by structured Markdown.
+
+It uses `define` blocks to declare schema items globally. Tags and properties are separate concepts. A property is not a field scoped under one tag; it is a global property that a tag admits.
+
+The language should support at least three kinds of declarations:
+
+- `type`: defines a reusable value shape.
+- `property`: defines a global property and the type of value it carries.
+- `tag`: defines a global tag and the properties it admits.
+
+A simple schema may look like this:
+
+```txt
+define
+  type task_status,
+    value "todo" | "doing" | "done";
+
+  type review_policy,
+    value [
+      required: boolean,
+      reviewer: optional(string),
+      level: optional("light" | "strict")
+    ];
+
+  type check,
+    value [
+      name: string,
+      required: boolean,
+      reason: optional(string)
+    ];
+
+  property status,
+    value task_status;
+
+  property review,
+    value review_policy;
+
+  property checks,
+    value array(check);
+
+  tag task,
+    admits status,
+    admits review,
+    admits checks;
+```
+
+The type language describes JSON-compatible values. It should support primitive types, literal values, unions, arrays, tuples, named object shapes, and optional fields:
+
+```txt
+string
+number
+boolean
+null
+any
+
+"todo" | "doing" | "done"
+
+array(string)
+array(check)
+
+[string, number]
+["range", string, number, number]
+
+[name: string, required: boolean]
+[name: string, reason: optional(string)]
+```
+
+Square brackets describe compound value shapes. A bracketed shape with positional entries describes a tuple. A bracketed shape with named entries describes a JSON object shape. Named and positional entries must not be mixed at the same level.
+
+Generic type constructors use parentheses, not angle brackets:
+
+```txt
+array(string)
+optional(review_policy)
+```
+
+The schema language should not introduce a separate `object` type. If a value has a known shape, that shape should be written explicitly with named entries. If a project does not want to constrain a value, it should use `any`.
+
+The first version should focus on type, property, and tag declarations. Views, indexes, validation rules, and export rules can be added later without changing the basic structure.
 
 ## Data Model
 
