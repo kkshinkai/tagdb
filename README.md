@@ -1,4 +1,4 @@
-# tagdb
+# Tag Database
 
 ## Ideas
 
@@ -59,3 +59,53 @@ When the artifact changes, the external explanation often fails to move with it.
 Inline plain text has better source-control properties. It is reviewed with the change, branched with the change, diffed with the change, merged with the change, blamed with the change, and preserved by ordinary version-control tools. For knowledge that is genuinely attached to a file, declaration, function, section, or region, this locality is part of what makes the knowledge maintainable.
 
 Ordinary comments and Markdown text, however, do not provide enough structure. They can preserve locality, but they cannot reliably express queryable proposals, typed fields, reusable decisions, prompt definitions, task records, generated documentation, or indexed constraints. The goal is to remove the false choice between locality without structure and structure without source-control locality.
+
+## Approach
+
+### A Markdown dialect as the default authoring format
+
+The default authoring format is a Markdown dialect for structured text.
+
+It should allow users to write prose while also declaring objects, fields, references, nested structures, anchors, and visibility boundaries. It follows Markdown's plain-text authoring model, but it may introduce syntax that requires dedicated parsing and rendering. Its purpose is to provide a readable, writable, diffable, and maintainable default format for structured text.
+
+This dialect should work in standalone Markdown-like documents and in text regions such as Markdown comments or source-code comments. It is the default way to write structured objects by hand, but it is not the only way to provide structured data to the system.
+
+### Adapter plugins as source integration layers
+
+Host formats are connected through adapter plugins. An adapter is responsible for connecting external artifacts to the structured-text system.
+
+An adapter may support four capabilities:
+
+- **Extraction**: read structured data from a host artifact, such as a Markdown file, source-code comment, YAML file, front matter block, configuration file, generated file, or project-specific format.
+
+- **Source mapping**: preserve the relationship between each extracted object and the artifact it came from, including file paths, source ranges, anchors, regions, generated locations, or other stable references. A structured object is useful only if it can be traced back to the source material it describes.
+
+- **Sidecar discovery**: attach structured data to artifacts that cannot or should not be modified directly. Images, videos, audio files, design files, binary assets, generated outputs, and third-party files may need sidecar files rather than embedded annotations.
+
+- **Editing**: when safe, apply structured-object changes back to the embedded block, host file, or sidecar file that owns the data. If an adapter cannot edit a source safely, it should expose the object as read-only or report the limitation explicitly.
+
+This makes adapters more than parsers. They are the project's extension mechanism for bringing external artifacts into the system while preserving their connection to source. Different adapters may support different levels of capability, but extraction without source mapping is not sufficient for this project.
+
+### A declarative language for definitions, queries, indexes, and views
+
+Projects should be organized through a declarative language that describes how structured objects are defined, found, indexed, validated, and presented.
+
+The language should cover four main areas:
+
+- **Definitions**: declare object shapes, fields, constraints, visibility rules, and relationships.
+
+- **Queries**: select, filter, order, group, and project structured objects across files and adapters.
+
+- **Indexes**: declare which fields, references, source locations, or relationships should be optimized for lookup.
+
+- **Views**: define reusable projections such as tables, grouped lists, dashboards, source-linked reports, generated documents, and prompt assemblies.
+
+This language is the project-level organization layer. It turns extracted structured objects into a searchable and maintainable library, and gives both humans and agents a stable way to ask questions about the same underlying text.
+
+### Human and agent interfaces
+
+The system should provide practical interfaces for both humans and agents.
+
+Human users need readable interfaces for navigating structured objects: tables, grouped lists, source-linked reports, generated documents, dashboards, and other project-specific views. Agents need mechanical interfaces for querying objects, inspecting source mappings, running validations, generating outputs, and applying supported edits. These interfaces may be delivered through UI views, CLI commands, and plugin APIs.
+
+These surfaces make the system usable in real workflows, but they are not the core of the design. They should remain replaceable and extensible as the project evolves.
