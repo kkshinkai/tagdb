@@ -78,7 +78,7 @@ An adapter may support four capabilities:
 
 - **Extraction**: read structured data from a host artifact, such as a Markdown file, source-code comment, YAML file, front matter block, configuration file, generated file, or project-specific format.
 
-- **Source mapping**: preserve the relationship between each extracted object and the artifact it came from, including file paths, source ranges, anchors, regions, generated locations, or other stable references. A structured object is useful only if it can be traced back to the source material it describes.
+- **Source mapping**: preserve both where structured data came from and what it points to. A function comment may come from a source-code range and point to the function it documents. A video sidecar entry may come from a sidecar file and point to a specific segment of the video. Both links matter: the extracted object must be traceable to its origin and to its target.
 
 - **Sidecar discovery**: attach structured data to artifacts that cannot or should not be modified directly. Images, videos, audio files, design files, binary assets, generated outputs, and third-party files may need sidecar files rather than embedded annotations.
 
