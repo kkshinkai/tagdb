@@ -1,4 +1,5 @@
 import type {Root} from "mdast";
+import type {Point, Position} from "unist";
 import type {
   CompileContext,
   Extension,
@@ -6,30 +7,49 @@ import type {
   Transform
 } from "mdast-util-from-markdown";
 import type {Token} from "micromark-util-types";
-import type {TagdbTagNode} from "../types.js";
+import type {
+  JsonValue,
+  TagdbAttachment,
+  TagdbPropertyAttachment,
+  TagdbPropertyNode,
+  TagdbSourceRange,
+  TagdbTagAttachment,
+  TagdbTagNode
+} from "../types.js";
 
 type AnyNode = {
   type: string;
   value?: string;
   children?: AnyNode[];
   data?: Record<string, unknown>;
+  position?: Position;
 };
 
 export function tagdbFromMarkdown(): Extension {
   return {
     enter: {
-      tagdbTag: enterTag
+      tagdbTag: enterTag,
+      tagdbProperty: enterProperty,
+      tagdbPropertyFlow: enterProperty
     },
     exit: {
       tagdbTagName: exitTagName,
-      tagdbTag: exitTag
+      tagdbTag: exitTag,
+      tagdbPropertyName: exitPropertyName,
+      tagdbPropertyValue: exitPropertyValue,
+      tagdbProperty: exitProperty,
+      tagdbPropertyFlow: exitProperty
     },
-    transforms: [attachTags as Transform]
+    transforms: [attachTagdb as Transform]
   };
 }
 
 const enterTag: Handle = function enterTag(this: CompileContext, token: Token) {
-  this.enter({type: "tagdbTag", value: ""} as never, token);
+  this.enter({
+    type: "tagdbTag",
+    value: "",
+    data: {tagdb: {origin: rangeFromToken(token)}}
+  } as never, token);
 };
 
 const exitTagName: Handle = function exitTagName(
@@ -44,7 +64,48 @@ const exitTag: Handle = function exitTag(this: CompileContext, token: Token) {
   this.exit(token);
 };
 
-function attachTags(tree: Root): Root {
+const enterProperty: Handle = function enterProperty(this: CompileContext, token: Token) {
+  this.enter({
+    type: "tagdbProperty",
+    value: "",
+    data: {
+      tagdb: {
+        origin: rangeFromToken(token),
+        valueKind: "scalar"
+      }
+    }
+  } as never, token);
+};
+
+const exitPropertyName: Handle = function exitPropertyName(
+  this: CompileContext,
+  token: Token
+) {
+  const node = this.stack[this.stack.length - 1] as unknown as TagdbPropertyNode;
+  const data = node.data || (node.data = {});
+  const tagdb = data.tagdb || (data.tagdb = {});
+  tagdb.name = decodeEscapes(this.sliceSerialize(token));
+};
+
+const exitPropertyValue: Handle = function exitPropertyValue(
+  this: CompileContext,
+  token: Token
+) {
+  const node = this.stack[this.stack.length - 1] as unknown as TagdbPropertyNode;
+  const raw = this.sliceSerialize(token).trim();
+  const data = node.data || (node.data = {});
+  const tagdb = data.tagdb || (data.tagdb = {});
+  tagdb.raw = raw;
+  tagdb.valueKind = "scalar";
+  tagdb.value = parseScalarValue(raw);
+  node.value = String(tagdb.value ?? "");
+};
+
+const exitProperty: Handle = function exitProperty(this: CompileContext, token: Token) {
+  this.exit(token);
+};
+
+function attachTagdb(tree: Root): Root {
   processChildren(tree as AnyNode);
   return tree;
 }
@@ -59,21 +120,30 @@ function processChildren(parent: AnyNode): void {
     processChildren(child);
 
     if (isPhrasingBlock(child)) {
-      const result = extractTags(child);
+      const result = extractInlineAttachments(child);
 
-      if (result.tags.length > 0) {
+      if (result.attachments.length > 0) {
         if (result.detached) {
           const target = findPreviousEligible(parent.children, index);
 
           if (target) {
-            appendTags(target, result.tags);
+            appendAttachments(target, result.attachments);
             parent.children.splice(index, 1);
             continue;
           }
         } else {
           child.children = result.children;
-          appendTags(child, result.tags);
+          appendAttachments(child, result.attachments);
         }
+      }
+    } else if (child.type === "tagdbProperty") {
+      const attachment = propertyAttachment(child);
+      const target = findPreviousEligible(parent.children, index);
+
+      if (target) {
+        appendAttachments(target, [attachment]);
+        parent.children.splice(index, 1);
+        continue;
       }
     }
 
@@ -85,34 +155,41 @@ function isPhrasingBlock(node: AnyNode): boolean {
   return node.type === "paragraph" || node.type === "heading";
 }
 
-function extractTags(node: AnyNode): {
+function extractInlineAttachments(node: AnyNode): {
   children: AnyNode[];
   detached: boolean;
-  tags: string[];
+  attachments: TagdbAttachment[];
 } {
   const children = node.children || [];
-  const tags: string[] = [];
+  const attachments: TagdbAttachment[] = [];
   const nextChildren: AnyNode[] = [];
-  let hasNonTagContent = false;
-  let removedTag = false;
+  let hasNonAttachmentContent = false;
+  let removedAttachment = false;
 
   for (const child of children) {
     if (child.type === "tagdbTag") {
-      if (typeof child.value === "string") tags.push(child.value);
-      removedTag = true;
+      attachments.push(tagAttachment(child));
+      removedAttachment = true;
+      trimTrailingSpace(nextChildren);
+      continue;
+    }
+
+    if (child.type === "tagdbProperty") {
+      attachments.push(propertyAttachment(child));
+      removedAttachment = true;
       trimTrailingSpace(nextChildren);
       continue;
     }
 
     if (isWhitespaceText(child)) {
-      if (removedTag) continue;
+      if (removedAttachment) continue;
       nextChildren.push(child);
       continue;
     }
 
-    hasNonTagContent = true;
+    hasNonAttachmentContent = true;
 
-    if (removedTag && child.type === "text" && typeof child.value === "string") {
+    if (removedAttachment && child.type === "text" && typeof child.value === "string") {
       child.value = child.value.replace(/^[ \t]+/, "");
 
       const previous = nextChildren[nextChildren.length - 1];
@@ -130,13 +207,13 @@ function extractTags(node: AnyNode): {
     }
 
     nextChildren.push(child);
-    removedTag = false;
+    removedAttachment = false;
   }
 
   return {
     children: mergeTextNodes(nextChildren.filter((child) => !isEmptyText(child))),
-    detached: node.type === "paragraph" && !hasNonTagContent,
-    tags
+    detached: node.type === "paragraph" && !hasNonAttachmentContent,
+    attachments
   };
 }
 
@@ -144,16 +221,76 @@ function findPreviousEligible(children: AnyNode[], before: number): AnyNode | un
   let index = before;
   while (index > 0) {
     const candidate = children[--index];
-    if (candidate && candidate.type !== "tagdbTag") return candidate;
+    if (candidate && isEligibleBlock(candidate)) return candidate;
+    if (candidate && !isInvisibleForAttachmentSearch(candidate)) return undefined;
   }
 
   return undefined;
 }
 
-function appendTags(node: AnyNode, tags: string[]): void {
+function isEligibleBlock(node: AnyNode): boolean {
+  return node.type === "paragraph" || node.type === "heading";
+}
+
+function isInvisibleForAttachmentSearch(node: AnyNode): boolean {
+  return node.type === "tagdbProperty";
+}
+
+function appendAttachments(node: AnyNode, attachments: TagdbAttachment[]): void {
   const data = node.data || (node.data = {});
-  const tagdb = (data.tagdb || (data.tagdb = {})) as {tags?: string[]};
-  tagdb.tags = [...(tagdb.tags || []), ...tags];
+  const tagdb = (data.tagdb || (data.tagdb = {})) as {
+    attachments?: TagdbAttachment[];
+    tags?: TagdbTagAttachment[];
+    properties?: TagdbPropertyAttachment[];
+  };
+  const target = rangeFromPosition(node.position);
+  const next = attachments.map((attachment) => withTarget(attachment, target));
+
+  tagdb.attachments = [...(tagdb.attachments || []), ...next];
+  tagdb.tags = [
+    ...(tagdb.tags || []),
+    ...next.filter((attachment): attachment is TagdbTagAttachment => attachment.kind === "tag")
+  ];
+  tagdb.properties = [
+    ...(tagdb.properties || []),
+    ...next.filter((attachment): attachment is TagdbPropertyAttachment => attachment.kind === "property")
+  ];
+}
+
+function withTarget(attachment: TagdbAttachment, target: TagdbSourceRange | undefined): TagdbAttachment {
+  return {...attachment, target} as TagdbAttachment;
+}
+
+function tagAttachment(node: AnyNode): TagdbTagAttachment {
+  return {
+    kind: "tag",
+    name: typeof node.value === "string" ? node.value : "",
+    origin: tagdbOrigin(node)
+  };
+}
+
+function propertyAttachment(node: AnyNode): TagdbPropertyAttachment {
+  const tagdb = (node.data?.tagdb || {}) as {
+    name?: string;
+    origin?: TagdbSourceRange;
+    raw?: string;
+    value?: JsonValue;
+    valueKind?: "scalar";
+  };
+
+  return {
+    kind: "property",
+    name: tagdb.name || "",
+    valueKind: "scalar",
+    raw: tagdb.raw || "",
+    value: tagdb.value ?? "",
+    origin: tagdb.origin
+  };
+}
+
+function tagdbOrigin(node: AnyNode): TagdbSourceRange | undefined {
+  const tagdb = (node.data?.tagdb || {}) as {origin?: TagdbSourceRange};
+  return tagdb.origin || rangeFromPosition(node.position);
 }
 
 function trimTrailingSpace(children: AnyNode[]): void {
@@ -176,6 +313,17 @@ function decodeEscapes(value: string): string {
   return value.replace(/\\([\s\S])/g, "$1");
 }
 
+function parseScalarValue(raw: string): string {
+  if (raw.length >= 2) {
+    const quote = raw.charAt(0);
+    if ((quote === '"' || quote === "'") && raw.charAt(raw.length - 1) === quote) {
+      return decodeEscapes(raw.slice(1, -1));
+    }
+  }
+
+  return raw;
+}
+
 function mergeTextNodes(children: AnyNode[]): AnyNode[] {
   const merged: AnyNode[] = [];
 
@@ -196,4 +344,27 @@ function mergeTextNodes(children: AnyNode[]): AnyNode[] {
   }
 
   return merged;
+}
+
+function rangeFromToken(token: Token): TagdbSourceRange {
+  return {
+    start: pointFromTokenPoint(token.start),
+    end: pointFromTokenPoint(token.end)
+  };
+}
+
+function rangeFromPosition(position: Position | undefined): TagdbSourceRange | undefined {
+  if (!position) return undefined;
+  return {
+    start: pointFromTokenPoint(position.start),
+    end: pointFromTokenPoint(position.end)
+  };
+}
+
+function pointFromTokenPoint(point: Point): Point {
+  return {
+    line: point.line,
+    column: point.column,
+    offset: point.offset
+  };
 }
