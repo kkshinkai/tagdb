@@ -305,19 +305,28 @@ Name::      named property marker
 
 The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules. Values are normalized into JSON-compatible data, while the authored Markdown source remains available for rendering, diagnostics, round-tripping, and editing.
 
-### Schema definition language
+### Definition and query language
 
-The schema definition language defines the vocabulary and value shapes used by structured Markdown.
+The project includes a definition and query language for structured Markdown data.
 
-It uses `define` blocks to declare schema items globally. Tags and properties are separate concepts. A property is not a field scoped under one tag; it is a global property that a tag admits.
+This language is separate from the Markdown syntax. Markdown syntax describes how tags and properties are written in documents. The definition and query language describes what those tags and properties mean, what value shapes they accept, and how structured blocks can be searched.
 
-The language should support at least three kinds of declarations:
+It has two main parts:
 
-- `type`: defines a reusable value shape.
-- `property`: defines a global property and the type of value it carries.
-- `tag`: defines a global tag and the properties it admits.
+- `define` blocks for schema declarations;
+- `query` blocks for saved queries.
 
-A simple schema may look like this:
+#### Definition blocks
+
+Definition blocks declare the vocabulary of a project.
+
+They define three kinds of global items:
+
+- `type`: a reusable value shape;
+- `property`: a global property and the type of value it carries;
+- `tag`: a global tag and the properties it admits.
+
+Properties are global. A property is not scoped under one tag. A tag only declares which properties it admits.
 
 ```txt
 define
@@ -353,7 +362,7 @@ define
     admits checks;
 ```
 
-The type language describes JSON-compatible values. It should support primitive types, literal values, unions, arrays, tuples, named object shapes, and optional fields:
+The type language describes JSON-compatible values. It should support primitive types, literal values, unions, arrays, tuples, named shapes, and optional values.
 
 ```txt
 string
@@ -376,16 +385,125 @@ array(check)
 
 Square brackets describe compound value shapes. A bracketed shape with positional entries describes a tuple. A bracketed shape with named entries describes a JSON object shape. Named and positional entries must not be mixed at the same level.
 
-Generic type constructors use parentheses, not angle brackets:
+Generic type constructors use parentheses:
 
 ```txt
 array(string)
 optional(review_policy)
 ```
 
-The schema language should not introduce a separate `object` type. If a value has a known shape, that shape should be written explicitly with named entries. If a project does not want to constrain a value, it should use `any`.
+The language should not introduce a separate `object` type. If a value has a known shape, that shape should be written explicitly with named entries. If a project does not want to constrain a value, it should use `any`.
 
-The first version should focus on type, property, and tag declarations. Views, indexes, validation rules, and export rules can be added later without changing the basic structure.
+#### Query blocks
+
+Query blocks search structured blocks.
+
+A query uses `match` to describe the blocks and values to find, and `get` to define the result columns. Query results are table-shaped by default, because they are intended to support UI views, CLI output, and agent-readable result sets.
+
+```txt
+query open_tasks
+match
+  $x isa #task;
+  $x.status != "done";
+get
+  task: $x,
+  status: $x.status,
+  reviewer: $x.reviewer;
+sort $x.status asc;
+limit 20;
+```
+
+The first version of the query language should stay small. It should support:
+
+- matching blocks by tag;
+- reading property values;
+- filtering with expressions;
+- returning named result columns;
+- sorting;
+- limiting result size.
+
+The `match` section describes conditions:
+
+```txt
+query private_prompt_items
+match
+  $x isa #prompt_instruction;
+  $x.visibility = "private";
+get
+  item: $x,
+  text: $x.text,
+  source: $x.source;
+sort $x.source asc;
+```
+
+The `get` section defines the output columns:
+
+```txt
+get
+  item: $x,
+  status: $x.status,
+  due: $x.due;
+```
+
+This is the query language's replacement for a `select` clause. It returns a table-like result set, not an arbitrary program value.
+
+#### Expressions
+
+Expressions are used in `match`, `get`, and `sort`.
+
+The first version should support variables, literals, access paths, comparison operators, boolean operators, function calls where needed, and parentheses for grouping.
+
+```txt
+$x
+$x.status
+$x.review.reviewer
+$x.checks.0.name
+
+"done"
+3
+true
+false
+null
+
+$x.status != "done"
+$x.priority > 3
+not ($x.reviewer = null)
+($x.status = "todo" or $x.status = "doing") and $x.priority > 2
+```
+
+Access paths use dot notation.
+
+A named segment accesses a field:
+
+```txt
+$x.review.reviewer
+```
+
+A numeric segment accesses an array element. Array indexes are zero-based:
+
+```txt
+$x.checks.0
+$x.checks.2.name
+```
+
+This avoids bracket notation in the query language while still allowing access to nested arrays and named shapes.
+
+The boolean operators are language operators, not functions:
+
+```txt
+not
+and
+or
+```
+
+Function calls may be added for common operations that do not fit simple access or comparison, such as text search or array membership:
+
+```txt
+contains($x.title, "login")
+length($x.checks) > 0
+```
+
+The first version should avoid joins, aggregation, recursive queries, updates, deletes, and complex graph traversal. Those features can be added later if needed. The initial goal is to provide a predictable way to search structured blocks and produce useful result tables.
 
 ## Data Model
 
