@@ -1,0 +1,39 @@
+{
+  "name": "remark-tagdb",
+  "version": "0.0.0",
+  "description": "Remark plugin for Tag Database structured Markdown.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test"
+  },
+  "keywords": [
+    "remark",
+    "unified",
+    "markdown",
+    "tagdb"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "mdast-util-from-markdown": "^2.0.3",
+    "micromark-util-types": "^2.0.2",
+    "remark": "^15.0.1",
+    "typescript": "^5.9.3",
+    "unified": "^11.0.5"
+  },
+  "dependencies": {
+    "mdast-util-to-markdown": "^2.1.2"
+  }
+}
