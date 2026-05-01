@@ -240,21 +240,11 @@ function appendAttachments(node: AnyNode, attachments: TagdbAttachment[]): void 
   const data = node.data || (node.data = {});
   const tagdb = (data.tagdb || (data.tagdb = {})) as {
     attachments?: TagdbAttachment[];
-    tags?: TagdbTagAttachment[];
-    properties?: TagdbPropertyAttachment[];
   };
   const target = rangeFromPosition(node.position);
   const next = attachments.map((attachment) => withTarget(attachment, target));
 
   tagdb.attachments = [...(tagdb.attachments || []), ...next];
-  tagdb.tags = [
-    ...(tagdb.tags || []),
-    ...next.filter((attachment): attachment is TagdbTagAttachment => attachment.kind === "tag")
-  ];
-  tagdb.properties = [
-    ...(tagdb.properties || []),
-    ...next.filter((attachment): attachment is TagdbPropertyAttachment => attachment.kind === "property")
-  ];
 }
 
 function withTarget(attachment: TagdbAttachment, target: TagdbSourceRange | undefined): TagdbAttachment {

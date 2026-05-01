@@ -8,8 +8,6 @@ export interface RemarkTagdbOptions {
 
 export interface TagdbData {
   attachments?: TagdbAttachment[];
-  tags?: TagdbTagAttachment[];
-  properties?: TagdbPropertyAttachment[];
 }
 
 export interface TagdbTagNode extends Literal {
