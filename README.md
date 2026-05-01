@@ -220,3 +220,7 @@ Name::      property marker
 ```
 
 The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules.
+
+## License
+
+This project is licensed under the terms of the Apache 2.0 License.
