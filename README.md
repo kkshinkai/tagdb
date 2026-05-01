@@ -155,7 +155,23 @@ Property parsing follows the same global naming discipline. A property marker ha
 Name:: value
 ```
 
-Property names cannot contain spaces. If a property needs a display name with spaces, that should be handled by definitions or aliases, not by the base syntax.
+Tag names and property names should normally not contain spaces:
+
+```md
+#Decision
+Status:: Accepted
+```
+
+If a tag name or property name must contain spaces, the name must be quoted with single quotes or double quotes:
+
+```md
+#"Review Required"
+"Review Status":: Accepted
+#'Prompt Boundary'
+'Prompt Visibility':: Private
+```
+
+Quoting a name only defines the name boundary. It does not change the meaning of the tag or property.
 
 A detached tag or property attaches backward to the nearest eligible content block. This allows structure to be written below the text it describes:
 
@@ -196,6 +212,35 @@ Title:: "Runtime prompt boundary"
 Reason:: 'Do not expose private rationale.'
 ```
 
+A single-line unquoted value is treated as a scalar string unless the project schema interprets it as another JSON-compatible value such as a number, boolean, or null. It is not interpreted as Markdown.
+
+```md
+Title:: Runtime prompt boundary
+Count:: 3
+Enabled:: true
+```
+
+A multiline unquoted value is treated as Markdown content. The parsed value is still a JSON-compatible string, but the source text is authored and rendered as Markdown:
+
+```md
+Description::
+  This is **Markdown** content.
+
+  - It may contain lists.
+  - It may contain links.
+```
+
+Quoted values are literal strings. If a value is written with single quotes, double quotes, triple single quotes, or triple double quotes, it is not interpreted as Markdown and no tags or properties are parsed inside it.
+
+```md
+Literal:: "Status:: Accepted is text here."
+Prompt:: '''
+  Return only the commit message.
+
+  Do not infer motivations that the user did not provide.
+  '''
+```
+
 Multiline quoted values use triple single quotes or triple double quotes. Backticks are not used as value delimiters.
 
 ```md
@@ -208,18 +253,94 @@ Rationale:: """
 
 The indentation needed to place a multiline value in the Markdown document is not part of the value. Multiline values are dedented before storage, while preserving the relative indentation of the content itself.
 
+Nested properties can be used to express object values:
+
+```md
+Review::
+  Required:: true
+  Owner:: Auth
+  Level:: Strict
+```
+
+A positional entry uses an empty property name:
+
+```md
+Owners::
+  :: Alice
+  :: Bob
+  :: Carol
+```
+
+Named entries form an object. Positional entries form an array. Mixing named and positional entries at the same level is invalid:
+
+```md
+Invalid::
+  Name:: Runtime boundary
+  :: Billing flow
+```
+
+Nested entries may be used recursively:
+
+```md
+Checks::
+  ::
+    Name:: Runtime boundary
+    Required:: true
+  ::
+    Name:: Billing flow
+    Required:: false
+```
+
 The fixed markers are:
 
 ```txt
 #Name       tag candidate, resolved only if defined
-Name::      property marker
-"..."       single-line quoted value
-'...'       single-line quoted value
-"""..."""   multiline quoted value, dedented
-'''...'''   multiline quoted value, dedented
+Name::      named property marker
+::          positional entry marker inside a property value
+"..."       single-line literal string
+'...'       single-line literal string
+"""..."""   multiline literal string, dedented
+'''...'''   multiline literal string, dedented
 ```
 
-The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules.
+The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules. Values are normalized into JSON-compatible data, while the authored Markdown source remains available for rendering, diagnostics, round-tripping, and editing.
+
+## Data Model
+
+A structured entity is produced from Markdown source. It should keep enough information to answer three questions:
+
+- where it is written;
+- what source material it points to;
+- what data it carries.
+
+In practice, this means an entity should keep its source mapping, the original Markdown text that produced it, the parsed JSON-compatible value, and any small amount of implementation information needed for parsing, diagnostics, or editing. The exact internal shape can evolve, but these pieces must not be collapsed into one another. The original Markdown text is needed for editing and round-tripping. The parsed value is needed for queries, indexes, validation, rendering, and compilation. The source mapping is needed to connect the entity back to the material it came from or describes.
+
+### URI
+
+Source and target positions should be represented by a project-defined URI format.
+
+The URI must be serializable as a string and specified precisely. It should be able to refer to an entire file, a fixed point inside a file, a continuous range, multiple ranges, or a structured region inside a text or non-text artifact.
+
+For example, the same locator system should eventually be able to refer to a Markdown block, a source range, an image region, a video time range, or pages 1-5 and 20-30 of a PDF.
+
+The first version does not need to support every locator form. The important rule is that source and target references are not informal strings or loose line numbers. They are represented through a defined URI system.
+
+### Value Model
+
+Parsed values are JSON-compatible.
+
+The supported value types are exactly the JSON value types:
+
+- null
+- boolean
+- number
+- string
+- array
+- object
+
+The base model does not add dates, units, currencies, symbols, sets, maps, tuples, functions, or undefined values.
+
+This restriction keeps the model simple and portable. Any language or tool that supports JSON can consume the parsed values. Domain-specific concepts such as dates, units, currencies, or typed identifiers can still be represented with ordinary JSON values and interpreted by schemas or applications.
 
 ## License
 
