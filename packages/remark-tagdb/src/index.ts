@@ -21,7 +21,7 @@ export default function remarkTagdb(
     data.toMarkdownExtensions || (data.toMarkdownExtensions = []);
 
   micromarkExtensions.push(tagdbSyntax(options));
-  fromMarkdownExtensions.push(tagdbFromMarkdown());
+  fromMarkdownExtensions.push(tagdbFromMarkdown(options));
   toMarkdownExtensions.push(tagdbToMarkdown());
 }
 

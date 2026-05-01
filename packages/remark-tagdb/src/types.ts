@@ -1,9 +1,18 @@
-import type {Literal} from "mdast";
+import type {Content, Literal} from "mdast";
 import type {Point} from "unist";
 
 export interface RemarkTagdbOptions {
   tags?: ReadonlyArray<string> | ReadonlySet<string>;
-  properties?: ReadonlyArray<string> | ReadonlySet<string>;
+  properties?: PropertyDefinitions;
+}
+
+export type PropertyDefinitions =
+  | ReadonlyArray<string>
+  | ReadonlySet<string>
+  | Readonly<Record<string, TagdbPropertyDefinition>>;
+
+export interface TagdbPropertyDefinition {
+  valueKind?: TagdbPropertyValueKind;
 }
 
 export interface TagdbData {
@@ -29,7 +38,7 @@ export interface TagdbPropertyNode extends Literal {
       origin?: TagdbSourceRange;
       raw?: string;
       value?: JsonValue;
-      valueKind?: "scalar";
+      valueKind?: TagdbPropertyValueKind;
     };
   };
 }
@@ -43,10 +52,12 @@ export type JsonValue =
   | {[key: string]: JsonValue};
 
 export type TagdbAttachment = TagdbTagAttachment | TagdbPropertyAttachment;
+export type TagdbPropertyValueKind = "scalar" | "object" | "array" | "markdown";
 
 export interface TagdbTagAttachment {
   kind: "tag";
   name: string;
+  placement?: TagdbAttachmentPlacement;
   origin?: TagdbSourceRange;
   target?: TagdbSourceRange;
 }
@@ -54,12 +65,16 @@ export interface TagdbTagAttachment {
 export interface TagdbPropertyAttachment {
   kind: "property";
   name: string;
-  valueKind: "scalar";
+  placement?: TagdbAttachmentPlacement;
+  valueKind: TagdbPropertyValueKind;
   raw: string;
-  value: JsonValue;
+  value: JsonValue | string;
+  children?: Content[];
   origin?: TagdbSourceRange;
   target?: TagdbSourceRange;
 }
+
+export type TagdbAttachmentPlacement = "inline" | "block" | "root";
 
 export interface TagdbSourceRange {
   start: Point;

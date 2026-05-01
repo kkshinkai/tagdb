@@ -37,6 +37,10 @@ function attachments(node) {
   return node.data?.tagdb?.attachments || [];
 }
 
+function rootAttachments(tree) {
+  return tree.data?.tagdb?.attachments || [];
+}
+
 function tagNames(node) {
   return attachments(node)
     .filter((attachment) => attachment.kind === "tag")
@@ -137,10 +141,11 @@ test("attaches a detached tag-only paragraph to the previous block", () => {
   const tree = parse("Runtime prompt boundary\n\n#Decision");
 
   assert.equal(tree.children.length, 1);
-  assert.deepEqual(tagNames(tree.children[0]), ["Decision"]);
-  assertMapped(attachments(tree.children[0])[0]);
+  assert.deepEqual(tagNames(tree.children[0]), []);
+  assert.deepEqual(rootAttachments(tree).map((attachment) => attachment.name), ["Decision"]);
+  assert.equal(rootAttachments(tree)[0].placement, "root");
   assert.deepEqual(simpleChildren(tree.children[0]), [{type: "text", value: "Runtime prompt boundary"}]);
-  assert.equal(roundtrip("Runtime prompt boundary\n\n#Decision"), "Runtime prompt boundary #Decision\n");
+  assert.equal(roundtrip("Runtime prompt boundary\n\n#Decision"), "#Decision\n\nRuntime prompt boundary\n");
 });
 
 test("treats whitespace around detached tags as non-content", () => {
@@ -148,21 +153,23 @@ test("treats whitespace around detached tags as non-content", () => {
 
   assert.equal(tree.children.length, 1);
   assert.deepEqual(tagNames(tree.children[0]), ["Decision"]);
+  assert.equal(attachments(tree.children[0])[0].placement, "block");
 });
 
 test("attaches multiple detached tags to the previous block", () => {
   const tree = parse("Runtime prompt boundary\n\n#Decision #Task");
 
   assert.equal(tree.children.length, 1);
-  assert.deepEqual(tagNames(tree.children[0]), ["Decision", "Task"]);
+  assert.deepEqual(tagNames(tree.children[0]), []);
+  assert.deepEqual(rootAttachments(tree).map((attachment) => attachment.name), ["Decision", "Task"]);
 });
 
 test("keeps a leading detached tag when no previous block exists", () => {
   const tree = parse("#Decision\n\nRuntime prompt boundary");
 
-  assert.equal(tree.children.length, 2);
-  assert.equal(tree.children[0].type, "paragraph");
-  assert.deepEqual(simpleChildren(tree.children[0]), [{type: "tagdbTag", value: "Decision"}]);
+  assert.equal(tree.children.length, 1);
+  assert.deepEqual(rootAttachments(tree).map((attachment) => attachment.name), ["Decision"]);
+  assert.deepEqual(simpleChildren(tree.children[0]), [{type: "text", value: "Runtime prompt boundary"}]);
 });
 
 test("supports quoted tag names", () => {
@@ -291,28 +298,30 @@ test("attaches a detached tag-only paragraph to a previous heading", () => {
 
   assert.equal(tree.children.length, 1);
   assert.equal(tree.children[0].type, "heading");
-  assert.deepEqual(tagNames(tree.children[0]), ["Decision"]);
-  assert.equal(roundtrip("# Runtime boundary\n\n#Decision"), "# Runtime boundary #Decision\n");
+  assert.deepEqual(tagNames(tree.children[0]), []);
+  assert.deepEqual(rootAttachments(tree).map((attachment) => attachment.name), ["Decision"]);
+  assert.equal(roundtrip("# Runtime boundary\n\n#Decision"), "#Decision\n\n# Runtime boundary\n");
 });
 
-test("attaches a flow property line without a blank line", () => {
+test("keeps an unindented flow property line as root metadata", () => {
   const tree = parse("Runtime prompt boundary\nStatus:: Accepted");
   const node = tree.children[0];
-  const status = property(node, "Status");
+  const status = rootAttachments(tree)[0];
 
   assert.equal(tree.children.length, 1);
-  assert.deepEqual(propertyValues(node), {Status: "Accepted"});
+  assert.deepEqual(propertyValues(node), {});
+  assert.equal(status.name, "Status");
   assert.equal(status.valueKind, "scalar");
   assert.equal(status.raw, "Accepted");
-  assertMapped(status);
-  assert.equal(roundtrip("Runtime prompt boundary\nStatus:: Accepted"), "Runtime prompt boundary\nStatus:: Accepted\n");
+  assert.equal(status.placement, "root");
+  assert.equal(roundtrip("Runtime prompt boundary\nStatus:: Accepted"), "Status:: Accepted\n\nRuntime prompt boundary\n");
 });
 
-test("attaches multiple consecutive flow property lines to the same block", () => {
+test("keeps multiple consecutive unindented property lines as root metadata", () => {
   const tree = parse("Runtime prompt boundary\nStatus:: Accepted\nVisibility:: Private");
 
   assert.equal(tree.children.length, 1);
-  assert.deepEqual(propertyValues(tree.children[0]), {
+  assert.deepEqual(Object.fromEntries(rootAttachments(tree).map((attachment) => [attachment.name, attachment.value])), {
     Status: "Accepted",
     Visibility: "Private"
   });
@@ -321,10 +330,9 @@ test("attaches multiple consecutive flow property lines to the same block", () =
 test("keeps a leading flow property line when no target exists", () => {
   const tree = parse("Status:: Accepted\n\nRuntime prompt boundary");
 
-  assert.equal(tree.children.length, 2);
-  assert.equal(tree.children[0].type, "tagdbProperty");
-  assert.equal(tree.children[0].data.tagdb.name, "Status");
-  assert.equal(tree.children[0].data.tagdb.value, "Accepted");
+  assert.equal(tree.children.length, 1);
+  assert.equal(rootAttachments(tree)[0].name, "Status");
+  assert.equal(rootAttachments(tree)[0].value, "Accepted");
 });
 
 test("does not treat undefined property lines as structured properties", () => {
@@ -338,18 +346,16 @@ test("does not treat undefined property lines as structured properties", () => {
 test("does not let flow properties attach across thematic breaks", () => {
   const tree = parse("Runtime prompt boundary\n\n---\nStatus:: Accepted");
 
-  assert.equal(tree.children.length, 3);
-  assert.equal(tree.children[2].type, "tagdbProperty");
-  assert.equal(tree.children[2].data.tagdb.name, "Status");
+  assert.equal(tree.children.length, 2);
+  assert.equal(rootAttachments(tree)[0].name, "Status");
 });
 
 test("does not let flow properties attach across definitions", () => {
   const tree = parse("[x]: https://example.com\nStatus:: Accepted");
 
-  assert.equal(tree.children.length, 2);
+  assert.equal(tree.children.length, 1);
   assert.equal(tree.children[0].type, "definition");
-  assert.equal(tree.children[1].type, "tagdbProperty");
-  assert.equal(tree.children[1].data.tagdb.name, "Status");
+  assert.equal(rootAttachments(tree)[0].name, "Status");
 });
 
 test("does not parse indented code as a flow property", () => {
@@ -405,7 +411,7 @@ test("supports quoted property names", () => {
   const node = child('Runtime prompt boundary "Review Status":: Accepted');
 
   assert.deepEqual(propertyValues(node), {"Review Status": "Accepted"});
-  assert.equal(roundtrip('Runtime prompt boundary "Review Status":: Accepted'), 'Runtime prompt boundary\n"Review Status":: Accepted\n');
+  assert.equal(roundtrip('Runtime prompt boundary "Review Status":: Accepted'), 'Runtime prompt boundary "Review Status":: Accepted\n');
 });
 
 test("supports quoted literal property values", () => {
@@ -450,4 +456,173 @@ test("does not parse properties inside inline code", () => {
   assert.equal(node.data, undefined);
   assert.equal(node.children[1].type, "inlineCode");
   assert.equal(node.children[1].value, "Status:: Accepted");
+});
+
+test("attaches indented block metadata to the previous block", () => {
+  const tree = parse("Runtime prompt boundary\n  Status:: Accepted\n  #Decision");
+  const node = tree.children[0];
+
+  assert.equal(tree.children.length, 1);
+  assert.deepEqual(propertyValues(node), {Status: "Accepted"});
+  assert.deepEqual(tagNames(node), ["Decision"]);
+  assert.deepEqual(rootAttachments(tree), []);
+  assert.equal(roundtrip("Runtime prompt boundary\n  Status:: Accepted\n  #Decision"), "Runtime prompt boundary\n  Status:: Accepted\n  #Decision\n");
+});
+
+test("parses a named property body as an object", () => {
+  const tree = parse("Review::\n  Status:: Accepted\n  Owner:: Auth", defaultTags, {
+    Review: {valueKind: "object"},
+    Status: {valueKind: "scalar"},
+    Owner: {valueKind: "scalar"}
+  });
+  const review = rootAttachments(tree)[0];
+
+  assert.equal(tree.children.length, 0);
+  assert.equal(review.name, "Review");
+  assert.equal(review.valueKind, "object");
+  assert.deepEqual(review.value, {Status: "Accepted", Owner: "Auth"});
+  assert.equal(roundtrip("Review::\n  Status:: Accepted\n  Owner:: Auth", defaultTags, {
+    Review: {valueKind: "object"},
+    Status: {valueKind: "scalar"},
+    Owner: {valueKind: "scalar"}
+  }), "Review::\n  Status:: Accepted\n  Owner:: Auth\n");
+});
+
+test("parses positional property entries as an array", () => {
+  const tree = parse("Owners::\n  :: Alice\n  :: Bob", defaultTags, {
+    Owners: {valueKind: "array"}
+  });
+  const owners = rootAttachments(tree)[0];
+
+  assert.equal(owners.name, "Owners");
+  assert.equal(owners.valueKind, "array");
+  assert.deepEqual(owners.value, ["Alice", "Bob"]);
+});
+
+test("parses nested objects inside positional entries", () => {
+  const tree = parse("Checks::\n  ::\n    Title:: Runtime boundary\n    Status:: Accepted", defaultTags, {
+    Checks: {valueKind: "array"},
+    Title: {valueKind: "scalar"},
+    Status: {valueKind: "scalar"}
+  });
+  const checks = rootAttachments(tree)[0];
+
+  assert.equal(checks.valueKind, "array");
+  assert.deepEqual(checks.value, [
+    {Title: "Runtime boundary", Status: "Accepted"}
+  ]);
+});
+
+test("parses deeply nested object and array values", () => {
+  const tree = parse([
+    "Review::",
+    "  Policy::",
+    "    Required:: true",
+    "    Owner:: Auth",
+    "  Checks::",
+    "    ::",
+    "      Title:: Runtime boundary",
+    "      Result::",
+    "        Status:: Accepted",
+    "        Evidence::",
+    "          :: Parser",
+    "          :: Tests",
+    "    ::",
+    "      Title:: Billing flow",
+    "      Result::",
+    "        Status:: Pending",
+    "        Evidence::",
+    "          :: Fixture"
+  ].join("\n"), defaultTags, {
+    Review: {valueKind: "object"},
+    Policy: {valueKind: "object"},
+    Required: {valueKind: "scalar"},
+    Owner: {valueKind: "scalar"},
+    Checks: {valueKind: "array"},
+    Title: {valueKind: "scalar"},
+    Result: {valueKind: "object"},
+    Status: {valueKind: "scalar"},
+    Evidence: {valueKind: "array"}
+  });
+  const review = rootAttachments(tree)[0];
+
+  assert.equal(review.valueKind, "object");
+  assert.deepEqual(review.value, {
+    Policy: {
+      Required: "true",
+      Owner: "Auth"
+    },
+    Checks: [
+      {
+        Title: "Runtime boundary",
+        Result: {
+          Status: "Accepted",
+          Evidence: ["Parser", "Tests"]
+        }
+      },
+      {
+        Title: "Billing flow",
+        Result: {
+          Status: "Pending",
+          Evidence: ["Fixture"]
+        }
+      }
+    ]
+  });
+});
+
+test("reports mixed named and positional entries as an invalid object value", () => {
+  const tree = parse("Review::\n  Status:: Accepted\n  :: Bob", defaultTags, {
+    Review: {valueKind: "object"},
+    Status: {valueKind: "scalar"}
+  });
+  const review = rootAttachments(tree)[0];
+
+  assert.equal(review.valueKind, "object");
+  assert.deepEqual(review.value, {__tagdbError: "mixed named and positional entries"});
+});
+
+test("parses markdown property values as dedented markdown children", () => {
+  const tree = parse("Description::\n  This is **Markdown**.\n\n  - Item", defaultTags, {
+    Description: {valueKind: "markdown"}
+  });
+  const description = rootAttachments(tree)[0];
+
+  assert.equal(description.valueKind, "markdown");
+  assert.equal(description.value, "This is **Markdown**.\n\n* Item");
+  assert.equal(description.children[0].type, "paragraph");
+  assert.equal(description.children[0].children[1].type, "strong");
+  assert.equal(description.children[1].type, "list");
+  assert.equal(roundtrip("Description::\n  This is **Markdown**.\n\n  - Item", defaultTags, {
+    Description: {valueKind: "markdown"}
+  }), "Description::\n  This is **Markdown**.\n\n  * Item\n");
+});
+
+test("keeps markdown value attachments inside the markdown subtree", () => {
+  const tree = parse("Description::\n  Text #Decision\n  Status:: Accepted", defaultTags, {
+    Description: {valueKind: "markdown"},
+    Status: {valueKind: "scalar"}
+  });
+  const description = rootAttachments(tree)[0];
+  const paragraph = description.children[0];
+
+  assert.equal(description.valueKind, "markdown");
+  assert.deepEqual(tagNames(paragraph), ["Decision"]);
+  assert.deepEqual(propertyValues(paragraph), {Status: "Accepted"});
+  assert.deepEqual(rootAttachments(tree).map((attachment) => attachment.name), ["Description"]);
+  assert.equal(roundtrip("Description::\n  Text #Decision\n  Status:: Accepted", defaultTags, {
+    Description: {valueKind: "markdown"},
+    Status: {valueKind: "scalar"}
+  }), "Description::\n  Text #Decision\n    Status:: Accepted\n");
+});
+
+test("treats indented code-looking entries inside property body as structured entries", () => {
+  const tree = parse("Review::\n    Status:: Accepted", defaultTags, {
+    Review: {valueKind: "object"},
+    Status: {valueKind: "scalar"}
+  });
+  const review = rootAttachments(tree)[0];
+
+  assert.equal(review.valueKind, "object");
+  assert.deepEqual(review.value, {Status: "Accepted"});
 });

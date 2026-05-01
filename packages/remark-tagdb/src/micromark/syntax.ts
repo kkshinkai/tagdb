@@ -74,8 +74,9 @@ export function tagdbSyntax(options: RemarkTagdbOptions = {}): Extension {
   };
 }
 
-function normalizeNames(names: ReadonlyArray<string> | ReadonlySet<string> | undefined): ReadonlySet<string> {
+function normalizeNames(names: RemarkTagdbOptions["tags"] | RemarkTagdbOptions["properties"]): ReadonlySet<string> {
   if (!names) return new Set();
+  if (!Array.isArray(names) && !(names instanceof Set)) return new Set(Object.keys(names));
   return names instanceof Set ? names : new Set(names);
 }
 
@@ -84,6 +85,7 @@ function propertyFlowConstructs(construct: Construct): Extension["flow"] {
   const starts = [
     codes.quotationMark,
     codes.apostrophe,
+    codes.colon,
     ...range(65, 90),
     ...range(97, 122)
   ];
@@ -100,6 +102,7 @@ function propertyTextConstructs(construct: Construct): NonNullable<Extension["te
   const starts = [
     codes.quotationMark,
     codes.apostrophe,
+    codes.colon,
     ...range(65, 90),
     ...range(97, 122)
   ];
@@ -252,6 +255,11 @@ function tokenizeProperty(properties: ReadonlySet<string>, tokenType: "tagdbProp
     }
 
     function nameStart(code: Code): State | undefined {
+      if (code === codes.colon) {
+        name = "";
+        return markerStart(code);
+      }
+
       if (code === codes.quotationMark || code === codes.apostrophe) {
         nameQuote = code;
         effects.enter("tagdbPropertyNameMarker");
@@ -356,8 +364,6 @@ function tokenizeProperty(properties: ReadonlySet<string>, tokenType: "tagdbProp
       }
 
       if (code === codes.eof || markdownLineEnding(code)) {
-        effects.enter("tagdbPropertyValue");
-        effects.exit("tagdbPropertyValue");
         effects.exit(tokenType);
         return ok(code);
       }
