@@ -109,3 +109,114 @@ The system should provide practical interfaces for both humans and agents.
 Human users need readable interfaces for navigating structured objects: tables, grouped lists, source-linked reports, generated documents, dashboards, and other project-specific views. Agents need mechanical interfaces for querying objects, inspecting source mappings, running validations, generating outputs, and applying supported edits. These interfaces may be delivered through UI views, CLI commands, and plugin APIs.
 
 These surfaces make the system usable in real workflows, but they are not the core of the design. They should remain replaceable and extensible as the project evolves.
+
+## Implementation
+
+### Markdown syntax
+
+The Markdown syntax is implemented as a remark plugin.
+
+The plugin should be implemented as a real Markdown syntax extension, not as an ad hoc text replacement layer. It should introduce explicit syntax-tree nodes for the dialect, preserve source positions, integrate with the mdast ecosystem, support serialization where appropriate, and include fixture-based tests for parsing, stringifying, escaping, multiline values, attachment rules, and source mapping.
+
+The syntax introduces two independent structures: tags and properties.
+
+A tag marks a block with a globally defined classification:
+
+```md
+Runtime prompt boundary #Decision
+```
+
+A property attaches a named value to a block:
+
+```md
+Runtime prompt boundary
+
+Status:: Accepted
+Visibility:: Private
+```
+
+Tags and properties are separate structures. They may appear together, but neither depends on the other. A block may have tags without properties, properties without tags, or both. Properties do not belong to a specific tag; tags and properties meet on the block they annotate.
+
+Tag parsing is definition-aware. A `#Name` sequence is treated as a tag only when `Name` is defined as a tag in the project configuration. Undefined hashtag-like text remains ordinary Markdown text. This prevents the dialect from reinterpreting every `#word` as structured data.
+
+For example, if `Decision` is defined but `region` is not, this text contains one structured tag and one ordinary marker:
+
+```md
+Runtime prompt boundary #Decision
+
+C# example: #region generated code
+```
+
+This rule is important because `#` already appears in many conventions: region markers, issue references, URL fragments, informal hashtags, anchors, and examples copied from other languages. A project should decide which names are meaningful instead of letting the parser convert every hashtag-shaped token into data.
+
+Property parsing follows the same global naming discipline. A property marker has the form:
+
+```md
+Name:: value
+```
+
+Property names cannot contain spaces. If a property needs a display name with spaces, that should be handled by definitions or aliases, not by the base syntax.
+
+A detached tag or property attaches backward to the nearest eligible content block. This allows structure to be written below the text it describes:
+
+```md
+Runtime prompt boundary
+
+#Decision
+Status:: Accepted
+Visibility:: Private
+```
+
+This is interpreted as:
+
+```txt
+block: "Runtime prompt boundary"
+tags:
+  - Decision
+properties:
+  Status: Accepted
+  Visibility: Private
+```
+
+The detached tag line is not a separate object. The property lines are not children of the tag. They are attachments to the same preceding content block.
+
+Inline forms are also allowed when compactness is useful:
+
+```md
+Runtime prompt boundary #Decision Status:: Accepted Visibility:: Private
+```
+
+This is equivalent to the detached form. The detached form is preferred when more than one property is present.
+
+A property value may be unquoted, quoted, or multiline:
+
+```md
+Status:: Accepted
+Title:: "Runtime prompt boundary"
+Reason:: 'Do not expose private rationale.'
+```
+
+Multiline quoted values use triple single quotes or triple double quotes. Backticks are not used as value delimiters.
+
+```md
+Rationale:: """
+  Runtime prompts may include final instructions.
+
+  They must not include private design rationale.
+  """
+```
+
+The indentation needed to place a multiline value in the Markdown document is not part of the value. Multiline values are dedented before storage, while preserving the relative indentation of the content itself.
+
+The fixed markers are:
+
+```txt
+#Name       tag candidate, resolved only if defined
+Name::      property marker
+"..."       single-line quoted value
+'...'       single-line quoted value
+"""..."""   multiline quoted value, dedented
+'''...'''   multiline quoted value, dedented
+```
+
+The Markdown dialect therefore adds two attachable structures to Markdown blocks: tags and properties. It does not require a tag to define a property scope, and it does not require a property to appear under a tag. Both structures attach to blocks according to the dialect's attachment rules.
